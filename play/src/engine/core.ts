@@ -63,7 +63,7 @@ function everyoneActed(
 }
 
 function outcomeDigest(o: Outcome): string {
-  return o.status === 'won' ? 'won:' + o.color : o.status;
+  return o.status === 'won' ? 'won:' + o.winners.join(',') : o.status;
 }
 
 export class Match {

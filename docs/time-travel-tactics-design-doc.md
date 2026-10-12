@@ -87,6 +87,8 @@ The grab tiles at world turn `t` are:
 
 Two colours grabbing the unheld key at the same world turn resolve by priority order. The loser's grab is not recorded. Grabs at different world turns both record. When several opponent bodies beside the thief face it with their key side, the thief takes from the highest personal index. It takes every incarnation on the side facing the thief and records those key indices in ascending order. Other sides remain held. A player cannot steal from their own bodies.
 
+Past-self key handoffs are not planned. Recorded selves do not take new actions or grab again when key holdings change. Fronts still change historical holdings, and recorded opponents can still be robbed.
+
 ### Fronts
 
 A grab at key index `i` starts a front at `i`; a steal of several incarnations starts one front per stolen index. After this turn's grabs, every counting front advances two indices, in creation order. The front rewrites what later bodies carry: indices it has covered read the new holder. When a front passes the origin of a later grab, that grab breaks. Its bodies lose the key from that index on, and its own front freezes. Broken grabs never recover in bootstrap, so there is no restoration and no cycle.
@@ -97,7 +99,9 @@ Example: A grabs at `t5` on meta-turn 5. On meta-turn 20 an inverted B grabs at 
 
 ### Win
 
-After fronts advance, a player wins when their live body is at `t0` on a tile orthogonally next to their own spawn tile while holding a key. Any action qualifies and the direction does not matter. The match ends at once, even if a front is still travelling. Priority order breaks ties within one meta-turn. There is no turn limit; play continues until someone wins.
+After fronts advance, every player whose live body is at `t0` on a tile orthogonally next to their own spawn tile while holding a key wins. Any action qualifies and the direction does not matter. A stationary or stuck live body is checked too. Players qualifying on the same meta-turn share victory. A front that removes a player's final incarnation that turn disqualifies them.
+
+The match ends at once, even if a front is still travelling. Historical goal visits do not qualify. There is no turn limit; play continues until someone wins.
 
 ## Death and fronts
 

@@ -512,3 +512,57 @@ describe('canonical exports and discovery', () => {
     } finally { f.close(); }
   });
 });
+
+for (const seed of ['test', 's2']) {
+  it('resumed peers agree on shared victory through commit/reveal with seed ' + seed, async () => {
+    const saved = Match.fromConfig({
+      mode: 'bootstrap', w: 7, h: 7, wallPct: 0, seed, roster: ['C', 'P']
+    });
+    const script = { C: 'DDHHDHAIHHSAAH', P: 'WWAWDDSISSHHHH' };
+    for (let turn = 0; turn < script.C.length; turn++) {
+      const hash = saved.stateHash();
+      for (const color of ['C', 'P'] as Color[]) {
+        const result = saved.submit({ turn, color, action: script[color as keyof typeof script][turn]!, hash });
+        assert.ok(result.ok, result.error);
+      }
+    }
+    assert.deepEqual(saved.outcome(), { status: 'running' });
+
+    const f = fixture();
+    const { network, sessions } = f;
+    const raw = saved.export({ C: 'Rook', P: 'Vale' });
+    try {
+      const coral = f.open('coral', 'resume', raw);
+      await network.pump();
+      assert.ok(coral.requestSeat('C').ok);
+      await network.pumpUntil(() => coral.color() === 'C');
+      const purple = f.open('purple', 'resume', raw);
+      await network.pump();
+      assert.ok(purple.requestSeat('P').ok);
+      await network.pumpUntil(() => purple.color() === 'P');
+      for (const session of sessions) assert.ok(session.ready().ok);
+      await network.pumpUntil(() => sessions.every((session) => session.view().canCommit));
+
+      const commitments = await Promise.all(sessions.map((session) => session.commit('H')));
+      assert.ok(commitments.every((result) => result.ok));
+      await network.pumpUntil(() => sessions.every((session) => session.view().phase === 'ended'));
+      assert.equal(coral.view().hash, purple.view().hash);
+      assert.equal(coral.export(), purple.export());
+      for (const session of sessions) {
+        const view = session.view();
+        assert.equal(view.turn, 15);
+        assert.deepEqual(view.outcome, { status: 'won', winners: ['C', 'P'] });
+        assert.equal(view.canCommit, false);
+        assert.deepEqual(view.actions, []);
+        assert.deepEqual(view.uncommitted, []);
+        assert.equal((await session.commit('I')).ok, false);
+      }
+      for (const from of ['coral', 'purple']) {
+        assert.ok(network.sent.some((packet) => packet.from === from && messageType(packet) === 'commit'));
+        assert.ok(network.sent.some((packet) => packet.from === from && messageType(packet) === 'reveal'));
+      }
+    } finally {
+      f.close();
+    }
+  });
+}

@@ -74,9 +74,11 @@ The key sits on the center tile at `t0`. End an action on any tile beside the ce
 
 To steal, end an action on the tile beyond an opponent's key side at the same world turn. You take every incarnation exposed on that side; keys on its other sides stay put. Recorded bodies can be robbed too. The log reports each pickup, steal, and complete loss.
 
+You cannot hand keys to your past selves. Recorded bodies do not take new actions or grab again.
+
 Each grabbed key index starts a front that walks the key's earlier holders, two indices per turn. A triangle in the grabber's colour marks a front on the board and in its own strip row, and slides to its new tile when a turn resolves. Hover it for the turns until it reaches you, or read the chip in the top bar when it is aimed at you. A front removes the incarnation it reaches; you lose the key only when none remain. Any grab it passes is undone.
 
-Win by ending an action at `t0` on a tile next to your own spawn while holding the key. Your spawn tile has a dashed outline in your colour. There is no turn limit; the match continues until someone wins.
+After fronts advance, win when your live body is at `t0` on a tile next to your own spawn while holding at least one key incarnation. Your spawn tile has a dashed outline in your colour. Players qualifying on the same turn share victory. Losing your final incarnation that turn prevents a win. The match ends immediately. Earlier recorded goal visits cannot win retroactively. There is no turn limit.
 
 ## Limits
 

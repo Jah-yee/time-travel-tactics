@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Match, metaTurn } from '../play/src/engine/index.js';
-import type { Color, ConfigInput, LogEntry, TurnEvent, View } from '../play/src/engine/index.js';
+import { Match, metaTurn, personalIndex, worldTurn } from '../play/src/engine/index.js';
+import { bootstrap } from '../play/src/engine/modes/bootstrap.js';
+import type { Body, Color, ConfigInput, LogEntry, TurnContext, TurnEvent, Vec, View } from '../play/src/engine/index.js';
 
 type MatchInstance = ReturnType<typeof Match.fromConfig>;
 type Script = Record<string, string>;
@@ -469,8 +470,8 @@ describe('bootstrap: win', () => {
     play(m, { C: 'H', P: 'H' });
 
     assert.deepEqual([view(m, 'C').me.t, view(m, 'C').me.x, view(m, 'C').me.y], [0, 1, 2]);
-    assert.deepEqual(m.outcome(), { status: 'won', color: 'C' });
-    assert.deepEqual(view(m, 'P').outcome, { status: 'won', color: 'C' });
+    assert.deepEqual(m.outcome(), { status: 'won', winners: ['C'] });
+    assert.deepEqual(view(m, 'P').outcome, { status: 'won', winners: ['C'] });
     assert.equal(m.currentTurn(), 7);
     assert.ok(keysOf(m, 'C', 'C').includes(7), 'the winning body holds');
     // The match ends even while the wave is still travelling.
@@ -496,11 +497,10 @@ describe('bootstrap: win', () => {
     assert.deepEqual(m.outcome(), { status: 'running' });
   });
 
-  it('resolves a simultaneous win by that turn priority', () => {
-    // Purple picks up on turn 2; coral steals from purple p4 on turn 10 with gap 5; both reach t0
-    // next to their spawns on turn 14 while still holding.
+  it('awards every simultaneous winner regardless of turn priority', () => {
+    // The steal's front has not caught Purple when both players return to t0.
     const script: Script = { C: 'DDHHDHAIHHSAAH', P: 'WWAWDDSISSHHHH' };
-    const winners: Color[] = [];
+    const firstPriorities: Color[] = [];
     for (const seed of ['test', 's2']) {
       const m = match({ seed });
       run(m, script);
@@ -512,11 +512,84 @@ describe('bootstrap: win', () => {
       assert.deepEqual([view(m, 'C').me.t, view(m, 'C').me.x, view(m, 'C').me.y], [0, 1, 2], seed);
       assert.deepEqual([view(m, 'P').me.t, view(m, 'P').me.x, view(m, 'P').me.y], [0, 6, 5], seed);
       assert.ok(keysOf(m, 'P', 'C').includes(15) && keysOf(m, 'P', 'P').includes(15), `${seed}: both hold`);
-      assert.deepEqual(m.outcome(), { status: 'won', color: prio[0] }, seed);
-      winners.push(prio[0] as Color);
+      assert.deepEqual(m.outcome(), { status: 'won', winners: ['C', 'P'] }, seed);
+      firstPriorities.push(prio[0] as Color);
       assertOver(m, 'C');
+      assertOver(m, 'P');
+      assert.equal(m.withdraw('C').error, 'the match is over');
+      assert.equal(m.withdraw('P').error, 'the match is over');
+      const restored = Match.fromExport(m.export());
+      assert.ok(restored.ok, restored.error);
+      assert.deepEqual(restored.value.match.outcome(), m.outcome());
+      assert.equal(restored.value.match.stateHash(), m.stateHash());
+      for (const color of m.config().roster) {
+        assert.deepEqual(restored.value.match.view(color), m.view(color));
+        assertOver(restored.value.match, color);
+      }
     }
-    assert.equal(new Set(winners).size, 2, 'the two seeds should give different winners');
+    assert.equal(new Set(firstPriorities).size, 2, 'the two seeds should give different priorities');
+  });
+});
+
+function goalContext(roster: Color[] = ['C', 'P']): TurnContext {
+  const spawns: Record<Color, Vec> = { C: [1, 1], P: [14, 7], T: [14, 1], A: [1, 7] };
+  const bodies: Body[] = roster.map((color) => ({
+    color, p: personalIndex(1), t: worldTurn(0), x: spawns[color][0],
+    y: spawns[color][1] + (color === 'C' || color === 'T' ? 1 : -1), dir: -1
+  }));
+  return {
+    cfg: { mode: 'bootstrap', w: 16, h: 9, wallPct: 0, seed: 'test', roster },
+    turn: metaTurn(0), prio: roster.slice(),
+    players: Object.fromEntries(bodies.map((body) => [body.color, {
+      ...body, horizon: worldTurn(1), stuck: false
+    }])),
+    bodies, bodiesAt: (t, x, y) => bodies.filter((b) => b.t === t && b.x === x && b.y === y),
+    actors: [], spawns,
+    center: [8, 4], events: []
+  };
+}
+
+describe('bootstrap: shared-win boundaries', () => {
+  it('includes four qualifying live players in canonical order', () => {
+    const turn = goalContext(['A', 'T', 'P', 'C']);
+    const state = bootstrap.init(turn.cfg);
+    for (const [i, color] of turn.cfg.roster.entries()) {
+      state.tape.record(i * 10, { color, p: personalIndex(1), side: [1, 0] }, turn.turn);
+    }
+    assert.deepEqual(bootstrap.outcome(state, turn), { status: 'won', winners: ['C', 'P', 'T', 'A'] });
+  });
+
+  it('does not award a recorded goal body after the player has moved on', () => {
+    const turn = goalContext();
+    const state = bootstrap.init(turn.cfg);
+    state.tape.record(0, { color: 'C', p: personalIndex(1), side: [1, 0] }, turn.turn);
+    turn.players.C = { ...turn.players.C!, p: personalIndex(2), t: worldTurn(1) };
+    assert.deepEqual(bootstrap.outcome(state, turn), { status: 'running' });
+  });
+
+  for (const survives of [false, true]) {
+    it(survives ? 'wins with a surviving incarnation after a front removes another' :
+      'does not win when the advancing front removes the final incarnation', () => {
+      const turn = goalContext();
+      const state = bootstrap.init(turn.cfg);
+      state.tape.record(2, { color: 'C', p: personalIndex(1), side: [1, 0] }, turn.turn);
+      state.tape.record(0, { color: 'P', p: personalIndex(1), side: [-1, 0] }, turn.turn);
+      if (survives) state.tape.record(10, { color: 'C', p: personalIndex(1), side: [0, 1] }, turn.turn);
+      turn.players.P = { ...turn.players.P!, t: worldTurn(1) };
+      bootstrap.afterTurn(state, turn);
+      assert.deepEqual(bootstrap.outcome(state, turn), survives ?
+        { status: 'won', winners: ['C'] } : { status: 'running' });
+    });
+  }
+
+  it('considers a stuck live player when a front brings an incarnation to its present', () => {
+    const turn = goalContext();
+    const state = bootstrap.init(turn.cfg);
+    turn.players.C!.stuck = true;
+    state.tape.record(0, { color: 'C', p: personalIndex(0), side: [1, 0] }, turn.turn);
+    assert.deepEqual(bootstrap.outcome(state, turn), { status: 'running' });
+    bootstrap.afterTurn(state, turn);
+    assert.deepEqual(bootstrap.outcome(state, turn), { status: 'won', winners: ['C'] });
   });
 });
 

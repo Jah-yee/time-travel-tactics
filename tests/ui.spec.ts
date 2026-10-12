@@ -2,6 +2,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { Match } from '../play/src/engine/index.js';
 
 declare global {
   interface Window {
@@ -1733,6 +1734,35 @@ test.describe('turn animation', () => {
 });
 
 test.describe('bootstrap', () => {
+  for (const { viewer, claim, roster, text } of [
+    { viewer: 'C', claim: 'Coral', roster: ['C', 'P'], text: 'You and Bishop won' },
+    { viewer: 'P', claim: 'Purple', roster: ['C', 'P'], text: 'Rook and You won' },
+    { viewer: 'T', claim: 'Teal', roster: ['C', 'P', 'T'], text: 'Rook and Bishop won' },
+  ]) {
+    test(`shared victory names every winner for viewer ${viewer}`, async ({ page }) => {
+      const match = Match.fromConfig({ mode: 'bootstrap', w: 7, h: 7, wallPct: 0, seed: 'test', roster });
+      const coral = 'DDHHDHAIHHSAAHH';
+      const purple = 'WWAWDDSISSHHHHH';
+      for (let turn = 0; turn < coral.length; turn++) {
+        const hash = match.view('C').hash;
+        for (const color of roster) {
+          const action = color === 'C' ? coral[turn]! : color === 'P' ? purple[turn]! : 'H';
+          expect(match.submit({ turn, hash, color, action })).toEqual({ ok: true });
+        }
+      }
+      const exported = match.export({ C: 'Rook', P: 'Bishop', T: 'Knight' });
+      await open(page, { peers: viewer === 'T' ? ['stub-peer', 'stub-peer-2'] : ['stub-peer'],
+        fragment: 'resume=' + encodeURIComponent(exported) });
+      await page.getByRole('button', { name: `Claim ${claim}`, exact: true }).click();
+      await preparePeers(page);
+      await page.locator('#btnReady').click();
+      await expect(page.locator('#phaseOver')).toBeVisible();
+      await expect(page.locator('#phaseOver h3')).toHaveText(text);
+      await expect(page.locator('#turnInfo')).toHaveText(text + ' at turn 15');
+      await expect(page.locator('#btnCommit')).toBeHidden();
+    });
+  }
+
   test('a key carried home at t0 wins the match', async ({ page }) => {
     await startBootstrap(page);
     await resolveTurn(page, 0, 'D', 'H');

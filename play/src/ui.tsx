@@ -222,7 +222,11 @@ function randomSeed(): string {
 }
 function outcomeText(v: SessionView): string {
   const o = v.outcome;
-  if (o.status === 'won') return (o.color === v.me.color ? 'You' : nameOf(v, o.color)) + ' won';
+  if (o.status === 'won') {
+    const names = o.winners.map((c) => c === v.me.color ? 'You' : nameOf(v, c));
+    const last = names.pop()!;
+    return (names.length ? names.join(', ') + ' and ' + last : last) + ' won';
+  }
   return 'Playing';
 }
 function messageOf(e: unknown): string {

@@ -79,7 +79,7 @@ export type ActionOffer = {
 };
 export type Outcome =
   | { status: 'running' }
-  | { status: 'won'; color: Color };
+  | { status: 'won'; winners: Color[] };
 
 export type ModeView = {
   keys: { color: Color; p: PersonalIndex; side: Vec }[];

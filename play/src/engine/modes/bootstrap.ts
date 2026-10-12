@@ -1,4 +1,4 @@
-import { DIRS, MOVES } from '../types.js';
+import { DIRS, MOVES, ORDER } from '../types.js';
 import type {
   Body, Color, Mode, ModeView, Outcome, PersonalIndex, TurnContext, Vec, WorldTurn
 } from '../types.js';
@@ -121,12 +121,13 @@ export const bootstrap: Mode<State> = {
 
   outcome(s, turn): Outcome {
     const live = liveHolds(s, turn);
-    for (const c of turn.prio) {
+    const winners: Color[] = [];
+    for (const c of ORDER) {
       const pl = turn.players[c], spawn = turn.spawns[c];
       if (!pl || !spawn || pl.t !== 0 || !live.has(c)) continue;
-      if (adjacentDir([pl.x, pl.y], spawn)) return { status: 'won', color: c };
+      if (adjacentDir([pl.x, pl.y], spawn)) winners.push(c);
     }
-    return { status: 'running' };
+    return winners.length ? { status: 'won', winners } : { status: 'running' };
   },
 
   digest: (s) => s.tape.digest(),

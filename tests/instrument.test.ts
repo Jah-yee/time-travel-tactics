@@ -55,7 +55,7 @@ describe('instrumentAt: columns', () => {
 
   it('drops the fog and takes the whole width once the match is won', () => {
     const view = held(4).view('C');
-    view.outcome = { status: 'won', color: 'C' };
+    view.outcome = { status: 'won', winners: ['C'] };
     const inst = instrumentAt(view, WIDTH);
     assert.equal(inst.fog, null);
     assert.equal(inst.colW, (inst.right - inst.left) / 5);
