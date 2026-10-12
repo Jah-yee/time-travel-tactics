@@ -9,7 +9,7 @@ This is the current capability ledger. Rules and intended features live in the [
 - Two modes chosen on the create form. Sandbox has no winner or turn limit. Bootstrap adds one key, pickups and steals, fronts along the key's timeline, a win at `t0` beside your spawn. It has no turn limit. See [Bootstrap](time-travel-tactics-design-doc.md#bootstrap).
 - Key markers on every holder side with counts for duplicate incarnations, a key on the center tile while unheld, dashed spawn outlines, and front markers on the board and strip with turns-until-reached readouts.
 - A combined board and timeline strip with focus and look-back controls, body identity, personal indices, and move legality.
-- Board and seed previews, size presets, and a ready-up lobby for 2–4 players. See [Start a match](playing.md#start-a-match).
+- Board and seed previews, size presets, and a ready-up lobby for 2–4 players. Seeded walls keep spawns and the center connected and stay in place as density rises. Setup limits density to the selected seed's maximum and shows the actual count and density. See [Start a match](playing.md#start-a-match).
 - WebRTC play over Trystero/Nostr with agreed seat ownership, transferable hosting, SHA-256 snapshot checks, and commit/reveal turns. See [Disconnecting and resuming](playing.md#disconnecting-and-resuming).
 - Always-visible commitment status, Enter/Space commit shortcuts, relative-direction markers, and compact index stacks.
 - A full-screen play view with collapsible rails, on-board move targets, priority status, a timeline chart, and staged turn animations.

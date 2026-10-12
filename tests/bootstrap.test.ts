@@ -137,7 +137,7 @@ describe('bootstrap: pickup', () => {
 
   it('grabs an earlier incarnation while a front removes a later one', () => {
     const m = match({
-      w: 16, h: 9, wallPct: 11, seed: '1dzex3', roster: ['C', 'P', 'T']
+      w: 16, h: 9, wallPct: 11, seed: 'pickup2', roster: ['C', 'P', 'T']
     });
     run(m, {
       C: 'DDDDDDDISSAASD',

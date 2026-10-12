@@ -8,7 +8,9 @@ Run `npm run dev` and open the printed address, or use the [published game](http
 
 Choose **Bootstrap** (bring the key home) or **Sandbox** (movement and inversion with no winner), a board size, and 2, 3, or 4 players. Two players is the default. The preview shows the walls and fixed spawns. Choose one of three seeds or **Reroll** for three new candidates.
 
-**Advanced** contains exact dimensions (5–64 on each side), wall density (0–45%), and seed. Invalid settings disable creation and hide the preview.
+**Advanced** contains exact dimensions (5–64 on each side), wall density, and seed. Density ranges from 0% to the selected board's maximum, capped at 45%. If changing size, players, or seed lowers that maximum below your setting, the setting drops to it with a notice. A higher maximum leaves your setting unchanged. Each seed preview uses its own limit. Invalid settings disable creation and hide the preview.
+
+The preview shows the wall count and actual density. Counts round down to whole tiles: a 39% setting on a 5x6 board requests 11 walls, or 36.7% actual density. Every spawn and the center stay connected. Raising density keeps existing walls.
 
 Create a match, then use **Copy join link** to invite the other players. The creator receives Coral; joining players receive the next available colour in Purple, Teal, Amber order. Edit your name in your roster row, then press **Ready**. Names use 1–12 letters, digits, hyphens, or underscores.
 

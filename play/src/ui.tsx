@@ -239,6 +239,7 @@ function SetupCard({ onMatch, initialError }: { onMatch: (m: Match) => void; ini
     mode: 'bootstrap', w: '16', h: '9', wallPct: '11', roster: 'CP'
   }));
   const [error, setError] = useState(initialError);
+  const [wallNotice, setWallNotice] = useState('');
   const seed = seeds[selected]!;
   const layout = useMemo(() => {
     try {
@@ -248,6 +249,7 @@ function SetupCard({ onMatch, initialError }: { onMatch: (m: Match) => void; ini
       const config: ConfigInput = { mode: form.mode, w: +form.w, h: +form.h, wallPct: +form.wallPct,
         seed: seed.trim(), roster: form.roster.split('') };
       const board = previewBoard(config);
+      config.wallPct = Math.min(config.wallPct, board.maxWallPct);
       const candidates = seeds.map((seed, i) => {
         if (i === selected) return board;
         try { return previewBoard({ ...config, seed }); } catch { return null; }
@@ -256,8 +258,16 @@ function SetupCard({ onMatch, initialError }: { onMatch: (m: Match) => void; ini
     } catch (e) { return { config: null, board: null, candidates: [], error: messageOf(e) }; }
   }, [form, seeds, selected]);
 
+  useLayoutEffect(() => {
+    if (layout.config && +form.wallPct > layout.config.wallPct) {
+      const wallPct = String(layout.config.wallPct);
+      setForm((old) => ({ ...old, wallPct }));
+      setWallNotice('Walls reduced to ' + wallPct + '% for this board.');
+    }
+  }, [form.wallPct, layout.config?.wallPct]);
+
   function update(key: keyof Form | 'seed', value: string) {
-    setError('');
+    setError(''); setWallNotice('');
     if (key === 'seed') {
       setSeeds((old) => old.map((seed, i) => i === selected ? value : seed));
       return;
@@ -265,10 +275,10 @@ function SetupCard({ onMatch, initialError }: { onMatch: (m: Match) => void; ini
     setForm((f) => ({ ...f, [key]: value }));
   }
   function chooseSize(w: number, h: number) {
-    setError(''); setForm((f) => ({ ...f, w: String(w), h: String(h) }));
+    setError(''); setWallNotice(''); setForm((f) => ({ ...f, w: String(w), h: String(h) }));
   }
   function reroll() {
-    setSeeds([randomSeed(), randomSeed(), randomSeed()]); setSelected(0); setError('');
+    setSeeds([randomSeed(), randomSeed(), randomSeed()]); setSelected(0); setError(''); setWallNotice('');
   }
   const preset = SIZES.find((s) => s.w === +form.w && s.h === +form.h);
   const input = (key: keyof Form | 'seed') => (e: { currentTarget: HTMLInputElement }) => update(key, e.currentTarget.value);
@@ -303,7 +313,9 @@ function SetupCard({ onMatch, initialError }: { onMatch: (m: Match) => void; ini
               <div>
                 <label class="f">Width <input id="fW" type="number" min="5" max="64" step="1" value={form.w} onInput={input('w')} /></label>
                 <label class="f">Height <input id="fH" type="number" min="5" max="64" step="1" value={form.h} onInput={input('h')} /></label>
-                <label class="f">Walls (%) <input id="fWall" type="number" min="0" max="45" step="1" value={form.wallPct} onInput={input('wallPct')} /></label>
+                <label class="f">Walls (%) <input id="fWall" type="number" min="0" max={layout.board?.maxWallPct ?? 45} step="1" value={form.wallPct} onInput={input('wallPct')} /></label>
+                {layout.board && <p class="sec">Maximum for this board: {layout.board.maxWallPct}%.</p>}
+                {wallNotice && <p class="sec" role="status">{wallNotice}</p>}
               </div>
               <div>
                 <label class="f">Seed <input id="fSeed" type="text" maxLength={24} value={seed} onInput={input('seed')} /></label>
@@ -317,13 +329,13 @@ function SetupCard({ onMatch, initialError }: { onMatch: (m: Match) => void; ini
         {layout.board ? <BoardPreview board={layout.board} /> : <div class="preview-invalid">Enter valid settings to preview the board.</div>}
         <div class="seed-options" role="group" aria-label="Seed candidates">
           {seeds.map((seed, i) => <button key={i} class="seed-option" aria-label={'Select seed ' + (i + 1)}
-            aria-pressed={selected === i} onClick={() => { setSelected(i); setError(''); }}>
+            aria-pressed={selected === i} onClick={() => { setSelected(i); setError(''); setWallNotice(''); }}>
             {layout.candidates[i] && <BoardPreview board={layout.candidates[i]!} label={'Seed ' + (i + 1) + ' preview'} />}
             <span>{seed || 'Empty seed'}</span>
           </button>)}
           <button id="btnReroll" onClick={reroll}>Reroll</button>
         </div>
-        {layout.board && <p class="preview-summary">{form.w} × {form.h} · {form.roster.length} players · {layout.board.walls.length} walls<br />
+        {layout.board && <p class="preview-summary">{form.w} × {form.h} · {form.roster.length} players · {layout.board.walls.length} walls · {(100 * layout.board.walls.length / (layout.board.w * layout.board.h)).toFixed(1)}% actual<br />
           <span class="mono">seed {seed}</span></p>}
         <p id="setupErr" class="err" role="alert">{layout.error || error}</p>
         <button id="btnMake" class="primary create-match" disabled={!layout.config} onClick={() => {

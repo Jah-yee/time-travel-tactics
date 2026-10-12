@@ -372,53 +372,27 @@ describe('priority and contests', () => {
     assert.equal(blocked[0]?.by, 'C', 'blocked by the holder');
   });
 
-  it('lets a stayer beat a higher-priority mover', (t) => {
-    const roster = ['C', 'P', 'T', 'A'];
-    let bounces = 0;
-    let upsets = 0;
-    let first: { seed: string; turn: number; winnerKind: string } | null = null;
-    const kindsSeen = new Set<string>();
-
-    for (let s = 0; s < 600; s++) {
-      const seed = `hold${s}`;
-      const m = match({ w: 5, h: 5, wallPct: 10, seed, roster });
-      let step = 0;
-      for (let round = 0; round < 14; round++) {
-        const turn = m.currentTurn();
-        const hash = m.stateHash();
-        const prio = view(m, 'C').priority.slice();
-        for (const color of roster) {
-          const opts = freeActions(m, color);
-          const action = opts[(s * 13 + step++) % opts.length];
-          assert.ok(action);
-          assert.ok(m.submit({ turn, color, action, hash }).ok, `${seed}: ${color} ${action}`);
-        }
-
-        const here = eventsOn(m, 'C', turn);
-        const kindOf: Record<string, string> = {};
-        for (const e of here) {
-          kindOf[e.color] = e.kind;
-          kindsSeen.add(e.kind);
-        }
-        for (const e of here) {
-          if (e.kind !== 'blocked' || e.by === null) continue;
-          const winnerKind = kindOf[e.by] ?? '';
-          if (!/^(held|inverted|blocked|moved)$/.test(winnerKind)) continue;
-          bounces++;
-          if (prio.indexOf(e.by) > prio.indexOf(e.color)) {
-            upsets++;
-            first ??= { seed, turn, winnerKind };
-          }
-        }
-      }
+  it('lets a lower-priority holder stop a mover returning to explored time', () => {
+    const m = match({ w: 5, h: 5, seed: 'hold52', roster: ['C', 'P', 'T', 'A'] });
+    const script = { C: 'HSISSI', P: 'IIAISI', T: 'WDHHHH', A: 'AISIII' };
+    for (let i = 0; i < script.C.length; i++) {
+      play(m, Object.fromEntries(Object.entries(script).map(([color, actions]) => [color, actions[i]!])));
     }
+    const before = view(m, 'C');
+    assert.deepEqual([before.me.t, before.me.x, before.me.y], [0, 1, 4]);
+    assert.ok(before.priority.indexOf('C') < before.priority.indexOf('A'));
+    assert.ok(!before.bodies.some((body) => body.t === 1 && body.x === 0 && body.y === 4),
+      'Amber will hold a tile with no recorded blocker');
+    assert.equal(before.actions.find((offer) => offer.action === 'A')?.reason, null);
 
-    assert.ok(upsets > 0, 'never saw a stayer beat a higher-priority mover in 600 matches');
-    assert.notEqual(first?.winnerKind, 'moved', 'a lower-priority winner must have stayed, not moved');
-    assert.ok(kindsSeen.has('held'), 'the search never picked hold, so it is untested here');
-    t.diagnostic(
-      `${bounces} bounces, ${upsets} beat higher priority, first at ${first?.seed} turn ${first?.turn}`,
-    );
+    play(m, { C: 'A', P: 'D', T: 'H', A: 'H' });
+
+    const coral = view(m, 'C').me, amber = view(m, 'A').me;
+    assert.deepEqual([coral.t, coral.p, coral.x, coral.y], [1, 7, 1, 4]);
+    assert.deepEqual([amber.t, amber.p, amber.x, amber.y], [1, 7, 0, 4]);
+    const blocked = eventsOn(m, 'C', 6).find((event) => event.color === 'C');
+    assert.deepEqual([blocked?.kind, blocked?.by], ['blocked', 'A']);
+    assert.equal(eventsOn(m, 'C', 6).find((event) => event.color === 'A')?.kind, 'held');
   });
 
   it('bounces the next player in turn when a mover is bounced', () => {

@@ -66,6 +66,10 @@ Bootstrap is the first mode with a winner. It has no weapons. Sandbox keeps only
 
 Spawns sit one tile in from each corner: Coral at (1, 1), Purple at (w-2, h-2), Teal at (w-2, 1), Amber at (1, h-2). The smallest board is 5x5. The center is (floor(w/2), floor(h/2)). Wall generation keeps spawns, their four neighbours, and the center clear. These rules apply in both modes.
 
+Wall candidates are shuffled by seed. A wall is added only if every spawn and the center remain connected. Lower densities use a prefix of the same accepted walls, so increasing density never removes walls. Other floor tiles need not all connect.
+
+Density requests range from 0 to 45 percent. The requested wall count is floor(width × height × density / 100). Each board has a maximum whole-percent setting whose requested count fits its accepted walls. Setup clamps to the selected seed's maximum and shows the actual count and density.
+
 ### The key
 
 One key starts at the center at `t0`. The key has its own timeline. Index `i` reads either "at the center at world turn `i`" or a holder body with a key side. A grab at index `i` by body `(c, p)` makes index `i + d` read body `(c, p + d)` with the same side, for as long as the grab's front covers it. A body holds a key when some index reads it. Several indices can read the same body, so one body can temporarily carry several incarnations of the key.

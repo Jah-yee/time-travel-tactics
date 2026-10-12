@@ -6,16 +6,19 @@ import type { Color } from '../play/src/engine/index.js';
 it('previews the exact generated match layout across sizes, modes, rosters, and seeds', () => {
   for (const [w, h] of [[9, 7], [16, 9], [24, 13], [5, 5], [64, 64]] as const) {
     for (const mode of ['bootstrap', 'sandbox'] as const) {
-      for (const roster of [['C', 'P'], ['C', 'P', 'T', 'A']] as Color[][]) {
+      for (const roster of [['C', 'P'], ['C', 'P', 'T'], ['C', 'P', 'T', 'A']] as Color[][]) {
         for (const seed of ['preview', 'another']) {
           const cfg = { mode, w, h, roster, seed, wallPct: 45, };
-          const board = previewBoard(cfg), view = Match.fromConfig(cfg).view('C');
+          const board = previewBoard(cfg), match = Match.fromConfig(cfg), view = match.view('C');
           assert.equal(board.w, view.w); assert.equal(board.h, view.h);
           assert.deepEqual(board.walls, view.walls);
           assert.deepEqual(board.spawns, view.spawns);
           assert.deepEqual(board.center, view.center);
           assert.equal(board.keyAtCenter, view.keyAtCenter.includes(worldTurn(0)));
           assert.deepEqual(board.roster, roster);
+          const replay = Match.fromExport(match.export());
+          assert.ok(replay.ok);
+          assert.deepEqual(replay.value.match.view('C').walls, board.walls);
         }
       }
     }

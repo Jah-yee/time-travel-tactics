@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 declare global {
   interface Window {
@@ -83,9 +83,9 @@ async function fillMatch(page: Page, cfg: Partial<typeof MATCH> = {}) {
   await page.getByText('Advanced', { exact: true }).click();
   await page.locator('#fW').fill(c.w);
   await page.locator('#fH').fill(c.h);
-  await page.locator('#fWall').fill(c.wall);
   await page.locator('#fSeed').fill(c.seed);
   await page.locator(`[data-roster="${c.roster}"]`).click();
+  await page.locator('#fWall').fill(c.wall);
 }
 
 async function createMatch(page: Page, cfg: Partial<typeof MATCH> = {}) {
@@ -142,6 +142,21 @@ async function stateHash(page: Page) {
   const hash = /state ([0-9a-f]{4})/.exec(info ?? '')?.[1];
   if (!hash) throw new Error(`no state hash in "${info}"`);
   return hash;
+}
+
+function boardTiles(cells: Locator) {
+  return cells.evaluateAll((cells) => {
+    const probe = document.createElement('i');
+    probe.style.backgroundColor = 'var(--wall)';
+    cells[0]!.append(probe);
+    const wallColor = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return cells.map((cell) => ({
+      wall: getComputedStyle(cell).backgroundColor === wallColor,
+      spawn: cell.getAttribute('data-spawn'),
+      key: !!cell.querySelector('.key-mark.center')
+    }));
+  });
 }
 
 // The dot row carries priority order and per-player commitment.
@@ -221,19 +236,7 @@ test.describe('setup screen', () => {
     await expect(page.getByRole('heading', { name: 'Board size · Custom' })).toBeVisible();
     await page.locator('#fWall').fill('20');
     await page.locator('#fSeed').fill('preview-proof');
-    const tiles = (selector: string) => page.locator(selector).evaluateAll((cells) => {
-      const probe = document.createElement('i');
-      probe.style.backgroundColor = 'var(--wall)';
-      cells[0]!.append(probe);
-      const wallColor = getComputedStyle(probe).backgroundColor;
-      probe.remove();
-      return cells.map((cell) => ({
-        wall: getComputedStyle(cell).backgroundColor === wallColor,
-        spawn: cell.getAttribute('data-spawn'),
-        key: !!cell.querySelector('.key-mark.center')
-      }));
-    });
-    const preview = await tiles('.preview-panel > .board-preview .cell');
+    const preview = await boardTiles(page.locator('.preview-panel > .board-preview .cell'));
     expect(preview).toHaveLength(23 * 13);
     expect(preview.some((cell) => cell.wall)).toBe(true);
     expect(preview.flatMap((cell, index) => cell.spawn ? [[index, cell.spawn]] : []))
@@ -241,9 +244,9 @@ test.describe('setup screen', () => {
     expect(preview.flatMap((cell, index) => cell.key ? [index] : [])).toEqual([149]);
     await page.locator('#btnMake').click();
     await expect(page.locator('.lobby-preview .board-preview')).toBeVisible();
-    expect(await tiles('.lobby-preview .board-preview .cell')).toEqual(preview);
+    expect(await boardTiles(page.locator('.lobby-preview .board-preview .cell'))).toEqual(preview);
     await sitDown(page);
-    expect(await tiles('#board .cell')).toEqual(preview);
+    expect(await boardTiles(page.locator('#board .cell'))).toEqual(preview);
   });
 
   test('candidate selection preserves alternatives and Reroll replaces all three', async ({ page }) => {
@@ -275,6 +278,113 @@ test.describe('setup screen', () => {
     await expect(page.locator('#btnMake')).toBeEnabled();
     await expect(page.locator('.preview-panel > .board-preview .cell')).toHaveCount(5 * 9);
   });
+
+  test('walls clamp to the selected board maximum and show actual density', async ({ page }) => {
+    await open(page);
+    await fillMatch(page, { w: '5', h: '5', seed: 'test', roster: 'CPTA', wall: '45' });
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '35');
+    await expect(page.locator('#fWall')).toHaveValue('35');
+    await expect(page.getByText('Maximum for this board: 35%.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Walls reduced to 35% for this board.', { exact: true })).toBeVisible();
+    await expect(page.locator('.preview-summary')).toContainText('8 walls · 32.0% actual');
+    await expect(page.locator('#btnMake')).toBeEnabled();
+
+    await page.locator('#fW').fill('16');
+    await page.locator('#fH').fill('9');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await expect(page.locator('#fWall')).toHaveValue('35');
+    await expect(page.getByText('Walls reduced to 35% for this board.', { exact: true })).toHaveCount(0);
+    await page.locator('#btnMake').click();
+    await expect.poll(() => page.evaluate(() => decodeURIComponent(location.hash.slice('#join='.length))))
+      .toBe('M2:sandbox:16x9:35:test:CPTA');
+  });
+
+  test('maximum boards render and keep seed controls usable at 45% walls', async ({ page }) => {
+    await open(page);
+    await fillMatch(page, { w: '64', h: '64', wall: '45', seed: 'maximum', roster: 'CPTA' });
+    await expect(page.locator('.preview-panel > .board-preview .cell')).toHaveCount(4096);
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await expect(page.locator('#btnMake')).toBeEnabled();
+    await page.locator('#fSeed').fill('maximum-edited');
+    await expect(page.locator('.preview-summary')).toContainText('seed maximum-edited');
+    await page.locator('#btnReroll').click();
+    await expect(page.locator('#fSeed')).not.toHaveValue('maximum-edited');
+    await expect(page.locator('.seed-option .cell')).toHaveCount(3 * 4096);
+    await expect(page.locator('#btnMake')).toBeEnabled();
+  });
+
+  test('roster and dimension edits reduce walls without restoring an earlier request', async ({ page }) => {
+    await open(page);
+    await fillMatch(page, { seed: 'test', roster: 'CPTA', wall: '45', w: '16', h: '9' });
+    await page.locator('#fW').fill('5');
+    await page.locator('#fH').fill('5');
+    await expect(page.locator('#fWall')).toHaveValue('35');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '35');
+    await page.locator('[data-roster="CP"]').click();
+    await expect(page.locator('#fWall')).toHaveValue('35');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await page.locator('#fWall').fill('45');
+    await page.locator('[data-roster="CPTA"]').click();
+    await expect(page.locator('#fWall')).toHaveValue('35');
+    await expect(page.locator('#btnMake')).toBeEnabled();
+  });
+
+  test('seed edits, selection and reroll use the selected maximum and clamp candidates independently', async ({ page }) => {
+    await open(page);
+    await page.evaluate(() => {
+      const seeds = ['cap0', 'cap12', 'cap61', 'cap28', 'cap1', 'cap2'];
+      let index = 0;
+      Math.random = () => (parseInt(seeds[index++ % seeds.length]!, 36) + 0.25) / 0x100000000;
+    });
+    await page.locator('#btnReroll').click();
+    await fillMatch(page, { w: '5', h: '7', wall: '0', seed: 'cap0', roster: 'CPT' });
+    await page.locator('#fWall').fill('45');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await expect(page.locator('#fWall')).toHaveValue('45');
+    const candidates = page.locator('.seed-option');
+    await expect(candidates.locator(':scope > span')).toHaveText(['cap0', 'cap12', 'cap61']);
+    for (const [index, count] of [15, 14, 13].entries()) {
+      const tiles = await boardTiles(candidates.nth(index).locator('.cell'));
+      expect(tiles.filter((tile) => tile.wall)).toHaveLength(count);
+    }
+    await page.getByRole('button', { name: 'Select seed 2', exact: true }).click();
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '42');
+    await expect(page.locator('#fWall')).toHaveValue('42');
+    await expect(page.getByText('Walls reduced to 42% for this board.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Select seed 1', exact: true }).click();
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await expect(page.locator('#fWall')).toHaveValue('42');
+    await page.locator('#fWall').fill('45');
+    await page.locator('#fSeed').fill('cap61');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '39');
+    await expect(page.locator('#fWall')).toHaveValue('39');
+    await page.locator('#fSeed').fill('cap0');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await expect(page.locator('#fWall')).toHaveValue('39');
+    await page.locator('#fWall').fill('45');
+    await page.locator('#btnReroll').click();
+    await expect(page.locator('#fSeed')).toHaveValue('cap28');
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '42');
+    await expect(page.locator('#fWall')).toHaveValue('42');
+    await expect(page.getByText('Walls reduced to 42% for this board.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Select seed 2', exact: true }).click();
+    await expect(page.locator('#fWall')).toHaveAttribute('max', '45');
+    await expect(page.locator('#fWall')).toHaveValue('42');
+  });
+
+  for (const invalid of ['', '-1', '1.5', '46']) {
+    test(`invalid walls ${JSON.stringify(invalid)} stay invalid rather than clamping`, async ({ page }) => {
+      await open(page);
+      await fillMatch(page, { roster: 'CPTA', seed: 'test' });
+      await page.locator('#fWall').fill(invalid);
+      await expect(page.locator('#fWall')).toHaveValue(invalid);
+      await expect(page.locator('#btnMake')).toBeDisabled();
+      await expect(page.locator('.preview-panel > .board-preview')).toHaveCount(0);
+      await expect(page.locator('#setupErr')).not.toHaveText('');
+      await page.locator('#fWall').fill('35');
+      await expect(page.locator('#btnMake')).toBeEnabled();
+    });
+  }
 
   test('the theme button toggles', async ({ page }) => {
     await open(page);
@@ -1069,7 +1179,7 @@ test.describe('board targets', () => {
 
   test('a wall behind a move stays a wall and offers nothing', async ({ page }) => {
     await open(page, { remoteName: 'Vale' });
-    await createMatch(page, { seed: 'w0', wall: '20' });
+    await createMatch(page, { seed: 'w2', wall: '20' });
     await sitDown(page);
     await resolveTurn(page, 0, 'S', 'H');
 

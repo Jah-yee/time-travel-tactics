@@ -26,17 +26,18 @@ export type BoardPreviewData = {
   spawns: Partial<Record<Color, Vec>>; center: Vec; keyAtCenter: boolean;
 };
 
-export function previewBoard(input: ConfigInput): BoardPreviewData {
+export function previewBoard(input: ConfigInput): BoardPreviewData & { maxWallPct: number } {
   const cfg = normalizeConfig(input);
   const spawns: Partial<Record<Color, Vec>> = {};
   for (const color of cfg.roster) spawns[color] = spawnFor(color, cfg.w, cfg.h);
   return {
     w: cfg.w, h: cfg.h, roster: cfg.roster, walls: [...genWalls(cfg)].map(unkey).sort((a, b) => a[1] - b[1] || a[0] - b[0]),
+    maxWallPct: wallPlacement(cfg).maxWallPct,
     spawns, center: centerOf(cfg.w, cfg.h), keyAtCenter: cfg.mode === 'bootstrap'
   };
 }
 
-export function protectedTiles(cfg: Config): Set<string> {
+function protectedTiles(cfg: Config): Set<string> {
   const out = new Set<string>();
   for (const c of cfg.roster) {
     const s = spawnFor(c, cfg.w, cfg.h);
@@ -68,51 +69,70 @@ export function normalizeConfig(c: ConfigInput): Config {
   return { mode, w, h, wallPct, seed, roster };
 }
 
-// Carve walls until every spawn and the center are reachable.
-export function genWalls(cfg: Config): Set<string> {
-  const w = cfg.w, h = cfg.h;
-  const spawns = cfg.roster.map((c) => spawnFor(c, w, h));
-  const first = spawns[0];
-  if (!first) throw new Error('need 1-4 players');
-  const must = [...spawns, centerOf(w, h)];
+type WallPlacement = { tiles: number[]; maxWallPct: number };
+const placements = new Map<string, WallPlacement>();
+
+function wallPlacement(cfg: Config): WallPlacement {
+  const { w, h } = cfg, area = w * h;
+  const key = w + 'x' + h + ':' + cfg.seed + ':' + cfg.roster.slice().sort().join('');
+  const cached = placements.get(key);
+  if (cached) {
+    placements.delete(key); placements.set(key, cached);
+    return cached;
+  }
+
   const safe = protectedTiles(cfg);
-
+  const candidates: number[] = [];
+  for (let i = 0; i < area; i++) {
+    if (!safe.has(tileKey(i % w, Math.floor(i / w)))) candidates.push(i);
+  }
   const rnd = mulberry32(fnv1a('walls:' + cfg.seed));
-  const wall = new Set<string>();
-  const target = Math.floor(w * h * cfg.wallPct / 100);
-  for (let guard = 0; wall.size < target && guard < w * h * 40; guard++) {
-    const k = tileKey(Math.floor(rnd() * w), Math.floor(rnd() * h));
-    if (!safe.has(k)) wall.add(k);
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const tile = candidates[i]!; candidates[i] = candidates[j]!; candidates[j] = tile;
   }
 
-  function reachable(): Set<string> {
-    const seen = new Set([tileKey(first![0], first![1])]);
-    const st: Vec[] = [first!];
-    while (st.length) {
-      const p = st.pop()!;
-      for (const m of MOVES) {
-        const v = DIRS[m], nx = p[0] + v[0], ny = p[1] + v[1], nk = tileKey(nx, ny);
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h || wall.has(nk) || seen.has(nk)) continue;
-        seen.add(nk); st.push([nx, ny]);
+  const must = [...cfg.roster.map((c) => spawnFor(c, w, h)), centerOf(w, h)];
+  const [sx, sy] = must[0]!, start = sy * w + sx;
+  const required = new Uint8Array(area);
+  for (const [x, y] of must) required[y * w + x] = 1;
+  const walls = new Uint8Array(area), seen = new Uint32Array(area), queue = new Uint16Array(area);
+  const steps = [-w, -1, w, 1];
+  let stamp = 0;
+  function connected(): boolean {
+    stamp++;
+    let head = 0, tail = 1, remaining = must.length - 1;
+    queue[0] = start; seen[start] = stamp;
+    while (head < tail && remaining) {
+      const tile = queue[head++]!, x = tile % w;
+      for (const step of steps) {
+        const next = tile + step;
+        if (next < 0 || next >= area || (step === -1 && x === 0) || (step === 1 && x === w - 1)) continue;
+        if (walls[next] || seen[next] === stamp) continue;
+        seen[next] = stamp; queue[tail++] = next;
+        if (required[next] && --remaining === 0) return true;
       }
     }
-    return seen;
+    return remaining === 0;
   }
-  for (let pass = 0; pass < w * h; pass++) {
-    const seen = reachable();
-    if (must.every((s) => seen.has(tileKey(s[0], s[1])))) break;
-    let removed = false;
-    for (let y = 0; y < h && !removed; y++) {
-      for (let x = 0; x < w && !removed; x++) {
-        const key = tileKey(x, y);
-        if (!wall.has(key)) continue;
-        for (const m of MOVES) {
-          const mv = DIRS[m];
-          if (seen.has(tileKey(x + mv[0], y + mv[1]))) { wall.delete(key); removed = true; break; }
-        }
-      }
-    }
-    if (!removed) break;
+
+  const tiles: number[] = [], target = Math.floor(area * 45 / 100);
+  for (const tile of candidates) {
+    walls[tile] = 1;
+    if (connected()) tiles.push(tile);
+    else walls[tile] = 0;
+    if (tiles.length === target) break;
   }
-  return wall;
+  let maxWallPct = 45;
+  while (Math.floor(area * maxWallPct / 100) > tiles.length) maxWallPct--;
+  const result = { tiles, maxWallPct };
+  placements.set(key, result);
+  if (placements.size > 6) placements.delete(placements.keys().next().value!);
+  return result;
+}
+
+export function genWalls(cfg: Config): Set<string> {
+  const placement = wallPlacement(cfg);
+  const target = Math.floor(cfg.w * cfg.h * Math.min(cfg.wallPct, placement.maxWallPct) / 100);
+  return new Set(placement.tiles.slice(0, target).map((tile) => tileKey(tile % cfg.w, Math.floor(tile / cfg.w))));
 }

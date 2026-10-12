@@ -13,7 +13,7 @@
 - A steal with facing victims on several neighbouring tiles takes from the highest personal index. Should the thief choose instead?
 - On even boards the center (floor(w/2), floor(h/2)) is one tile closer to Purple's corner than to Coral's. Should boards be odd only?
 - Should walls be mirrored so every route to the center has the same length?
-- On a 5x5 board the protected tiles (spawns, their neighbours, the center) leave few tiles for walls, so the wall percentage saturates well below its setting. Is the minimum size worth keeping?
+- A 5x5 board with four players supports eight walls. Is the minimum size worth keeping?
 
 ## UI
 
